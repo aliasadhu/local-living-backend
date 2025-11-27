@@ -3,36 +3,40 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors()); // Allows Shopify to connect
+app.use(cors()); 
 app.use(express.json());
 
-// Main Route
+// 1. Health Check
+app.get('/', (req, res) => res.send('Local Living Server is Running!'));
+
+// 2. LIVE SEARCH ROUTE (The one failing)
 app.post('/live-search', async (req, res) => {
   try {
     const { userRequest } = req.body;
-    const PPLX_KEY = process.env.PERPLEXITY_API_KEY; // You will add this to Vercel Settings
-
+    
+    // Check if Key exists in Vercel Settings
+    const PPLX_KEY = process.env.PERPLEXITY_API_KEY; 
     if (!PPLX_KEY) {
-      return res.status(500).json({ error: "Missing Server API Key" });
+      console.error("Missing PERPLEXITY_API_KEY");
+      return res.status(500).json({ error: "Server Configuration Error: Missing API Key" });
     }
 
     const prompt = `
       ROLE: Expert Maldivian Travel Planner.
-      TASK: Create a 3-day itinerary based on the user request: "${userRequest}".
+      TASK: Create a 3-day itinerary based on: "${userRequest}".
       
-      CRITICAL INSTRUCTION: Search the internet for REAL, highly-rated LOCAL guesthouses (3-4 stars).
-      Do NOT hallucinate. Use real hotel names found in search results.
+      INSTRUCTION: Search the web for REAL, highly-rated LOCAL guesthouses.
       NO RESORTS. NO WATER VILLAS.
       
       OUTPUT JSON ONLY: {
         "title": "Trip Name",
-        "hotel_name": "Real Guesthouse Name",
+        "hotel_name": "Real Guesthouse found online",
         "island": "Island Name",
-        "price_level": "Estimated Price",
+        "price_level": "Current Price Est.",
         "days": [
-          { "title": "Day 1", "desc": "Transfer & Check-in details." },
-          { "title": "Day 2", "desc": "Morning activity & Lunch spot." },
-          { "title": "Day 3", "desc": "Cultural activity & Departure." }
+          { "title": "Day 1", "desc": "Arrival details." },
+          { "title": "Day 2", "desc": "Main Activity." },
+          { "title": "Day 3", "desc": "Culture & Return." }
         ]
       }
     `;
@@ -44,20 +48,25 @@ app.post('/live-search', async (req, res) => {
         'Authorization': `Bearer ${PPLX_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.1-sonar-small-128k-online", // The "Online" Model
+        model: "llama-3.1-sonar-small-128k-online", 
         messages: [{ role: "user", content: prompt }]
       })
     });
 
     const data = await response.json();
     
-    // Clean up the JSON string (Perplexity sometimes adds markdown)
+    // Safety: If Perplexity fails or runs out of credits
+    if (data.error) {
+       console.error("Perplexity API Error:", data.error);
+       return res.status(500).json({ error: "AI Service Error: " + data.error.message });
+    }
+
     let cleanJson = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
     res.json(JSON.parse(cleanJson));
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Server Error" });
+    console.error("Backend Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

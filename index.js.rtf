@@ -1,23 +1,22 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors'); // Using the library
+const cors = require('cors'); // This will work now
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SYSTEM_PROMPT = require('./systemPrompt');
 
 const app = express();
 
-// --- THE OFFICIAL CORS FIX ---
-// This enables the "Preflight" check automatically
+// --- ALLOW SHOPIFY CONNECTION ---
 app.use(cors()); 
-app.options('*', cors()); // Allow OPTIONS requests for all routes
+app.options('*', cors()); // Allow "Preflight" checks
 
 app.use(express.json());
 
+// Health Check
 app.get('/', (req, res) => res.send('Backend is Online'));
 
 app.post('/diagnostic', async (req, res) => {
   try {
-    // Check API Key
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({ error: "Missing API Key" });
     }
@@ -43,10 +42,10 @@ app.post('/diagnostic', async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    // Fallback response to prevent crash
+    // Fallback response
     res.json({
       type: "question",
-      text: "I am reconnecting to the island network. Could you ask that again?",
+      text: "I am momentarily disconnected. Could you try clicking that again?",
       options: ["Try Again"]
     });
   }

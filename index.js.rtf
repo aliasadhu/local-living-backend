@@ -1,53 +1,63 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors'); // This will work now
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const SYSTEM_PROMPT = require('./systemPrompt');
+const cors = require('cors');
 
 const app = express();
-
-// --- ALLOW SHOPIFY CONNECTION ---
-app.use(cors()); 
-app.options('*', cors()); // Allow "Preflight" checks
-
+app.use(cors()); // Allows Shopify to connect
 app.use(express.json());
 
-// Health Check
-app.get('/', (req, res) => res.send('Backend is Online'));
-
-app.post('/diagnostic', async (req, res) => {
+// Main Route
+app.post('/live-search', async (req, res) => {
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Missing API Key" });
+    const { userRequest } = req.body;
+    const PPLX_KEY = process.env.PERPLEXITY_API_KEY; // You will add this to Vercel Settings
+
+    if (!PPLX_KEY) {
+      return res.status(500).json({ error: "Missing Server API Key" });
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    const { history } = req.body;
-    const conversation = history ? history.map(turn => `${turn.role}: ${turn.text}`).join('\n') : "";
-
     const prompt = `
-      ${SYSTEM_PROMPT}
-      CURRENT CONVERSATION:
-      ${conversation}
-      YOUR RESPONSE (JSON ONLY):
+      ROLE: Expert Maldivian Travel Planner.
+      TASK: Create a 3-day itinerary based on the user request: "${userRequest}".
+      
+      CRITICAL INSTRUCTION: Search the internet for REAL, highly-rated LOCAL guesthouses (3-4 stars).
+      Do NOT hallucinate. Use real hotel names found in search results.
+      NO RESORTS. NO WATER VILLAS.
+      
+      OUTPUT JSON ONLY: {
+        "title": "Trip Name",
+        "hotel_name": "Real Guesthouse Name",
+        "island": "Island Name",
+        "price_level": "Estimated Price",
+        "days": [
+          { "title": "Day 1", "desc": "Transfer & Check-in details." },
+          { "title": "Day 2", "desc": "Morning activity & Lunch spot." },
+          { "title": "Day 3", "desc": "Cultural activity & Departure." }
+        ]
+      }
     `;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const response = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PPLX_KEY}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-sonar-small-128k-online", // The "Online" Model
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+
+    const data = await response.json();
     
+    // Clean up the JSON string (Perplexity sometimes adds markdown)
+    let cleanJson = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
     res.json(JSON.parse(cleanJson));
 
   } catch (error) {
     console.error(error);
-    // Fallback response
-    res.json({
-      type: "question",
-      text: "I am momentarily disconnected. Could you try clicking that again?",
-      options: ["Try Again"]
-    });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 

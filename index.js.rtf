@@ -1,43 +1,33 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors'); // Using the library
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SYSTEM_PROMPT = require('./systemPrompt');
 
 const app = express();
 
-// --- THE NUCLEAR CORS FIX ---
-// This manually tells the browser "Yes, Shopify is allowed"
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // Allow ANY site
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-
-  // If the browser checks "Are you there?", say YES immediately
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  next();
-});
+// --- THE OFFICIAL CORS FIX ---
+// This enables the "Preflight" check automatically
+app.use(cors()); 
+app.options('*', cors()); // Allow OPTIONS requests for all routes
 
 app.use(express.json());
 
-// Main Route
+app.get('/', (req, res) => res.send('Backend is Online'));
+
 app.post('/diagnostic', async (req, res) => {
   try {
-    // 1. Check API Key
+    // Check API Key
     if (!process.env.GEMINI_API_KEY) {
-      console.error("Missing API Key");
-      return res.status(500).json({ error: "Server Error: Missing API Key" });
+      return res.status(500).json({ error: "Missing API Key" });
     }
 
-    // 2. Setup AI
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // 3. Build Prompt
     const { history } = req.body;
     const conversation = history ? history.map(turn => `${turn.role}: ${turn.text}`).join('\n') : "";
-    
+
     const prompt = `
       ${SYSTEM_PROMPT}
       CURRENT CONVERSATION:
@@ -45,20 +35,18 @@ app.post('/diagnostic', async (req, res) => {
       YOUR RESPONSE (JSON ONLY):
     `;
 
-    // 4. Get Response
     const result = await model.generateContent(prompt);
     const text = result.response.text();
-    
-    // 5. Clean & Send
     const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
     res.json(JSON.parse(cleanJson));
 
   } catch (error) {
-    console.error("Server Error:", error);
-    // Fallback response so site doesn't crash
+    console.error(error);
+    // Fallback response to prevent crash
     res.json({
       type: "question",
-      text: "The local line is a bit fuzzy. Could you try asking that again?",
+      text: "I am reconnecting to the island network. Could you ask that again?",
       options: ["Try Again"]
     });
   }

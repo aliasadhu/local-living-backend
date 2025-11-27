@@ -12,18 +12,43 @@ const \{ GoogleGenerativeAI \} = require('@google/generative-ai');\
 const SYSTEM_PROMPT = require('./systemPrompt');\
 \
 const app = express();\
-app.use(cors());\
+\
+// --- 1. ENABLE CORS FOR SHOPIFY ---\
+app.use(cors(\{\
+  origin: '*', // Allow Shopify to connect\
+  methods: ['GET', 'POST', 'OPTIONS'],\
+  allowedHeaders: ['Content-Type']\
+\}));\
+\
 app.use(express.json());\
 \
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);\
-const model = genAI.getGenerativeModel(\{ model: "gemini-1.5-flash" \});\
+// --- 2. HEALTH CHECK ---\
+app.get('/', (req, res) => \{\
+  res.status(200).send('Backend is Online & Ready');\
+\});\
 \
-app.get('/', (req, res) => res.send('Local Living Backend Active'));\
-\
+// --- 3. MAIN ROUTE ---\
 app.post('/diagnostic', async (req, res) => \{\
   try \{\
+    console.log("Request received from Shopify...");\
+\
+    // Check for API Key\
+    if (!process.env.GEMINI_API_KEY) \{\
+      console.error("ERROR: Missing GEMINI_API_KEY");\
+      return res.status(500).json(\{ error: "Server Configuration Error: Missing API Key" \});\
+    \}\
+\
+    // Check for System Prompt\
+    if (!SYSTEM_PROMPT) \{\
+      console.error("ERROR: Missing System Prompt");\
+      return res.status(500).json(\{ error: "Server Error: Missing Logic" \});\
+    \}\
+\
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);\
+    const model = genAI.getGenerativeModel(\{ model: "gemini-1.5-flash" \});\
+\
     const \{ history \} = req.body;\
-    const conversation = history.map(turn => `$\{turn.role\}: $\{turn.text\}`).join('\\n');\
+    const conversation = history ? history.map(turn => `$\{turn.role\}: $\{turn.text\}`).join('\\n') : "";\
 \
     const prompt = `\
       $\{SYSTEM_PROMPT\}\
@@ -33,14 +58,24 @@ app.post('/diagnostic', async (req, res) => \{\
     `;\
 \
     const result = await model.generateContent(prompt);\
-    const text = result.response.text();\
+    const response = await result.response;\
+    const text = response.text();\
+\
+    console.log("AI Replied:", text);\
+\
+    // Clean JSON\
     const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();\
     \
     res.json(JSON.parse(cleanJson));\
 \
   \} catch (error) \{\
-    console.error(error);\
-    res.status(500).json(\{ error: "Failed" \});\
+    console.error("CRITICAL ERROR:", error);\
+    // Send a fallback response so the frontend doesn't hang\
+    res.status(200).json(\{\
+      type: "question",\
+      text: "I am having a moment of confusion. Could you please select that option again?",\
+      options: ["Try Again"]\
+    \});\
   \}\
 \});\
 \
